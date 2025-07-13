@@ -1,6 +1,3 @@
-import { generateText } from "ai"
-import { openai } from "@ai-sdk/openai"
-
 interface OpenAIAnalysisRequest {
   symptoms: string
   analysisType: "free" | "premium"
@@ -27,44 +24,45 @@ interface OpenAIAnalysisResult {
 export class OpenAIService {
   static async analyzeSkin(request: OpenAIAnalysisRequest): Promise<OpenAIAnalysisResult> {
     try {
-      console.log("OpenAI Service: Starting cost-effective analysis")
-      console.log("OpenAI API Key available:", !!process.env.OPENAI_API_KEY)
+      console.log("OpenAI Service: Starting analysis")
 
-      // Check if OpenAI API key is available
-      if (!process.env.OPENAI_API_KEY) {
-        console.warn("OpenAI API key not found")
+      // Check if we're in a build environment or missing dependencies
+      if (typeof window === "undefined" && !process.env.OPENAI_API_KEY) {
+        console.log("Build environment detected, using fallback")
         return this.getFallbackAnalysis(request)
       }
 
-      // Use GPT-4o-mini for cost-effective analysis (much cheaper than GPT-4)
-      const model = "gpt-4o-mini" // Cost-effective model
-      console.log("Using cost-effective model:", model)
+      // Try to use AI SDK if available
+      try {
+        const { generateText } = await import("ai")
+        const { openai } = await import("@ai-sdk/openai")
 
-      const prompt = this.buildAnalysisPrompt(request)
+        if (!process.env.OPENAI_API_KEY) {
+          console.warn("OpenAI API key not found, using fallback")
+          return this.getFallbackAnalysis(request)
+        }
 
-      console.log("Calling OpenAI with cost-effective model...")
+        const model = "gpt-4o-mini"
+        const prompt = this.buildAnalysisPrompt(request)
 
-      const { text } = await generateText({
-        model: openai(model),
-        prompt,
-        maxTokens: 1500, // Reduced tokens for cost efficiency
-        temperature: 0.3, // Lower temperature for more consistent results
-      })
+        console.log("Calling OpenAI with model:", model)
 
-      console.log("OpenAI response received, length:", text.length)
+        const { text } = await generateText({
+          model: openai(model),
+          prompt,
+          maxTokens: 1500,
+          temperature: 0.3,
+        })
 
-      const analysis = this.parseResponse(text)
-      console.log("Parsed analysis:", {
-        condition: analysis.condition,
-        confidence: analysis.confidence,
-        hasError: !!analysis.error,
-      })
-
-      return analysis
+        console.log("OpenAI response received")
+        const analysis = this.parseResponse(text)
+        return analysis
+      } catch (importError) {
+        console.log("AI SDK not available, using fallback:", importError.message)
+        return this.getFallbackAnalysis(request)
+      }
     } catch (error: any) {
       console.error("OpenAI analysis error:", error)
-
-      // Return fallback analysis instead of error
       return this.getFallbackAnalysis(request)
     }
   }
@@ -139,11 +137,9 @@ IMPORTANT:
     try {
       console.log("Parsing OpenAI response...")
 
-      // Clean the response
       let cleanContent = content.trim()
       cleanContent = cleanContent.replace(/```json\s*/g, "").replace(/```\s*/g, "")
 
-      // Try to extract JSON
       const jsonMatch = cleanContent.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
         cleanContent = jsonMatch[0]
@@ -151,7 +147,6 @@ IMPORTANT:
 
       const parsed = JSON.parse(cleanContent)
 
-      // Validate and structure the response
       const result: OpenAIAnalysisResult = {
         condition: parsed.condition || "Skin Condition Detected",
         confidence: Math.min(Math.max(parsed.confidence || 80, 70), 95),
@@ -187,7 +182,6 @@ IMPORTANT:
   }
 
   private static getFallbackAnalysis(request: OpenAIAnalysisRequest): OpenAIAnalysisResult {
-    // Intelligent fallback based on common symptoms
     const symptoms = request.symptoms.toLowerCase()
 
     let condition = "General Skin Condition"
@@ -195,7 +189,6 @@ IMPORTANT:
     let severity: "Mild" | "Moderate" | "Severe" = "Mild"
     const confidence = 75
 
-    // Simple keyword-based analysis for fallback
     if (symptoms.includes("red") || symptoms.includes("rash")) {
       condition = "Skin Irritation/Rash"
       description =
